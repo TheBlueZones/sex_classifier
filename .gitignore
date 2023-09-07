@@ -1,6 +1,8 @@
 # Ignore everything
-*
+
 
 # Except for these files
 !.gitignore
-!sex_classifier.ipynb
+!sex_classifier_mobilenet_hyperparameter_search.ipynb
+/female_images/
+/male_images/

@@ -1,0 +1,11 @@
+没充电，开启均衡模式的情况下分类202599张照片总耗时: 400.27 秒
+充电，狂派模式总耗时: 467.05 秒
+
+最开始训练的模型会将所识别为男的，然后更换模型，从VGG16到MobileNet，但是对于女性识别的效果依然较差
+用400张图片得到的最优参数
+"Best: 0.840592 using {'learning_rate': 0.01, 'optimizer': <class 'keras.optimizers.rmsprop.RMSprop'>}"
+将这个最优参数用到4000张图片上效果并没有变好
+用800张图片得到的最优参数
+Best: 0.824982 using {'learning_rate': 0.001, 'optimizer': <class 'keras.optimizers.adam.Adam'>}
+用1000张图片得到的最优参数
+Best: 0.839362 using {'learning_rate': 0.001, 'optimizer': <class 'keras.optimizers.rmsprop.RMSprop'>}

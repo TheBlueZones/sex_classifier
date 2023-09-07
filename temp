@@ -1,0 +1,195 @@
+数据预处理
+# 导入所需库
+import os
+import cv2
+import numpy as np
+
+# 定义数据预处理函数
+def load_and_preprocess_image(image_path, target_size=(64, 64)):
+    # 读取图片文件
+    image = cv2.imread(image_path)
+    # 调整图片尺寸到目标尺寸
+    image = cv2.resize(image, target_size)
+    # 将图片从BGR格式转换为RGB格式
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    # 对图片进行归一化处理，使像素值范围在0-1之间
+    return image
+
+# 读取和预处理图像数据，为每个图像分配标签
+male_images_path = 'male_images'
+female_images_path = 'female_images'
+
+# 获取男性和女性图像文件的路径列表
+male_image_files = [os.path.join(male_images_path, f) for f in os.listdir(male_images_path)]
+female_image_files = [os.path.join(female_images_path, f) for f in os.listdir(female_images_path)]
+
+# 读取并预处理男性和女性图像
+male_images = [load_and_preprocess_image(f) for f in male_image_files[:1000]]
+female_images = [load_and_preprocess_image(f) for f in female_image_files[:1000]]
+
+
+# 将男性和女性图像数据整合到一起，作为输入数据X
+X = male_images + female_images
+# 为男性和女性图像分配标签，男性为0，女性为1，并整合到一起，作为输出数据y
+y = [0] * len(male_images) + [1] * len(female_images)
+
+# 将输入数据X和输出数据y转换为NumPy数组
+X = np.array(X)
+y = np.array(y)
+划分数据集
+import numpy as np
+from sklearn.model_selection import train_test_split
+
+# 假设已经加载并预处理好图片数据，存储在X中，标签存储在y中
+# X = ...
+# y = ...
+
+# 数据集划分
+def split_data(X, y):
+    """
+    将数据集划分为训练集、验证集和测试集。
+
+    参数:
+    X -- 图片数据
+    y -- 图片对应的标签
+
+    返回值:
+    X_train, X_val, X_test, y_train, y_val, y_test -- 划分后的数据集
+    """
+    # 将数据集划分为训练集和临时数据集（验证集+测试集），比例为70% : 30%
+    X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.3, random_state=42)
+
+    # 将临时数据集划分为验证集和测试集，比例为50% : 50%，即相对于原数据集各占15%
+    X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
+
+    return X_train, X_val, X_test, y_train, y_val, y_test
+
+# 调用split_data函数进行数据集划分
+X_train, X_val, X_test, y_train, y_val, y_test = split_data(X, y)
+
+# 打印划分后的数据集大小
+print("训练集大小:", X_train.shape, y_train.shape)
+print("验证集大小:", X_val.shape, y_val.shape)
+print("测试集大小:", X_test.shape, y_test.shape)
+#检查形状
+print("X_train shape:", X_train.shape)
+print("X_val shape:", X_val.shape)
+print("X_test shape:", X_test.shape)
+print("y_train shape:", y_train.shape)
+print("y_val shape:", y_val.shape)
+print("y_test shape:", y_test.shape)
+选择模型
+import numpy as np
+from sklearn.model_selection import train_test_split
+import tensorflow as tf
+from tensorflow.keras.applications.vgg16 import VGG16
+from tensorflow.keras.layers import Dense, Flatten, Dropout
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
+# 假设已经加载并预处理好图片数据，存储在X中，标签存储在y中
+# X = ...
+# y = ...
+
+# 使用你提供的split_data函数划分数据集
+X_train, X_val, X_test, y_train, y_val, y_test = split_data(X, y)
+
+# 准备数据增强（data augmentation）
+train_datagen = ImageDataGenerator(
+    rescale=1./255,
+    rotation_range=20,
+    width_shift_range=0.2,
+    height_shift_range=0.2,
+    shear_range=0.2,
+    zoom_range=0.2,
+    horizontal_flip=True,
+    fill_mode='nearest')
+
+validation_datagen = ImageDataGenerator(rescale=1./255)
+
+# 使用.flow()方法生成训练集和验证集
+train_generator = train_datagen.flow(X_train, y_train, batch_size=32)
+validation_generator = validation_datagen.flow(X_val, y_val, batch_size=32)
+
+# 创建和训练模型（与之前的代码相同）
+# 更改输入尺寸为(64, 64, 3)，与您的数据集尺寸匹配
+base_model = VGG16(weights='imagenet', include_top=False, input_shape=(64, 64, 3))
+
+for layer in base_model.layers[:-4]:
+    layer.trainable = False
+
+x = base_model.output
+x = Flatten()(x)
+x = Dense(512, activation='relu')(x)
+x = Dropout(0.5)(x)
+
+# 更改输出层为二分类问题
+predictions = Dense(1, activation='sigmoid')(x)
+
+model = Model(inputs=base_model.input, outputs=predictions)
+# 更改损失函数为binary_crossentropy
+model.compile(optimizer=Adam(learning_rate=0.0001), loss='binary_crossentropy', metrics=['accuracy'])
+
+history = model.fit(
+    train_generator,
+    steps_per_epoch=len(train_generator),
+    epochs=30,
+    validation_data=validation_generator,
+    validation_steps=len(validation_generator))
+# 5.评估模型：
+在测试集上评估训练好的模型的性能。常用的评估指标包括准确率、召回率、F1分数等。如果评估结果满意，你可以继续下一步；如果不满意，可以调整模型结构或超参数，然后重新训练和评估。
+import os
+import cv2
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, confusion_matrix
+import tensorflow as tf
+from tensorflow.keras.applications.vgg16 import VGG16
+from tensorflow.keras.layers import Dense, Flatten, Dropout
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
+# 定义数据预处理函数
+def load_and_preprocess_image(image_path, target_size=(64, 64)):
+    image = cv2.imread(image_path)
+    image = cv2.resize(image, target_size)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image = image.astype(np.float32) / 255.0
+    return image
+
+# 读取和预处理图像数据，为每个图像分配标签
+male_images_path = 'male_images'
+female_images_path = 'female_images'
+
+male_image_files = [os.path.join(male_images_path, f) for f in os.listdir(male_images_path)]
+female_image_files = [os.path.join(female_images_path, f) for f in os.listdir(female_images_path)]
+
+male_images = [load_and_preprocess_image(f) for f in male_image_files[:1000]]
+female_images = [load_and_preprocess_image(f) for f in female_image_files[:1000]]
+
+X = male_images + female_images
+y = [0] * len(male_images) + [1] * len(female_images)
+
+X = np.array(X)
+y = np.array(y)
+
+# 调用split_data函数进行数据集划分
+X_train, X_val, X_test, y_train, y_val, y_test = split_data(X, y)
+
+# ...后续的数据增强、模型创建、训练、评估等代码与之前一致（见之前的回答）
+
+# 评估模型在测试集上的性能
+loss, accuracy = model.evaluate(X_test , y_test)
+print("Test accuracy: {:.2f}%".format(accuracy * 100))
+
+# 计算混淆矩阵和分类报告
+y_pred = model.predict(X_test / 255.0)
+y_pred_classes = np.round(y_pred).reshape(-1)
+
+print("Confusion Matrix:")
+print(confusion_matrix(y_test, y_pred_classes))
+
+print("\nClassification Report:")
+print(classification_report(y_test, y_pred_classes, target_names=["Male", "Female"]))

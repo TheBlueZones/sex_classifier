@@ -1,0 +1,241 @@
+数据预处
+# 导入所需库
+import os
+import cv2
+import numpy as np
+
+# 定义数据预处理函数
+def load_and_preprocess_image(image_path, target_size=(64, 64)):
+    # 读取图片文件
+    image = cv2.imread(image_path)
+    # 调整图片尺寸到目标尺寸
+    image = cv2.resize(image, target_size)
+    # 将图片从BGR格式转换为RGB格式
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    # 对图片进行归一化处理，使像素值范围在0-1之间
+    image = image.astype(np.float32) / 255.0
+    return image
+
+# 读取和预处理图像数据，为每个图像分配标签
+male_images_path = 'male_images'
+female_images_path = 'female_images'
+
+# 获取男性和女性图像文件的路径列表
+male_image_files = [os.path.join(male_images_path, f) for f in os.listdir(male_images_path)]
+female_image_files = [os.path.join(female_images_path, f) for f in os.listdir(female_images_path)]
+
+# 读取并预处理男性和女性图像
+male_images = [load_and_preprocess_image(f) for f in male_image_files[:100]]
+female_images = [load_and_preprocess_image(f) for f in female_image_files[:100]]
+
+
+# 将男性和女性图像数据整合到一起，作为输入数据X
+X = male_images + female_images
+# 为男性和女性图像分配标签，男性为0，女性为1，并整合到一起，作为输出数据y
+y = [0] * len(male_images) + [1] * len(female_images)
+
+# 将输入数据X和输出数据y转换为NumPy数组
+X = np.array(X)
+y = np.array(y)
+划分数据集
+import numpy as np
+from sklearn.model_selection import train_test_split
+
+# 假设已经加载并预处理好图片数据，存储在X中，标签存储在y中
+# X = ...
+# y = ...
+
+# 数据集划分
+def split_data(X, y):
+    """
+    将数据集划分为训练集、验证集和测试集。
+
+    参数:
+    X -- 图片数据
+    y -- 图片对应的标签
+
+    返回值:
+    X_train, X_val, X_test, y_train, y_val, y_test -- 划分后的数据集
+    """
+    # 将数据集划分为训练集和临时数据集（验证集+测试集），比例为70% : 30%
+    X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.3, random_state=42)
+
+    # 将临时数据集划分为验证集和测试集，比例为50% : 50%，即相对于原数据集各占15%
+    X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
+
+    return X_train, X_val, X_test, y_train, y_val, y_test
+
+# 调用split_data函数进行数据集划分
+X_train, X_val, X_test, y_train, y_val, y_test = split_data(X, y)
+
+# 打印划分后的数据集大小
+print("训练集大小:", X_train.shape, y_train.shape)
+print("验证集大小:", X_val.shape, y_val.shape)
+print("测试集大小:", X_test.shape, y_test.shape)
+
+# 计算训练集中男性和女性图像的数量
+num_male_train = np.sum(y_train == 0)
+num_female_train = np.sum(y_train == 1)
+
+# 计算验证集中男性和女性图像的数量
+num_male_val = np.sum(y_val == 0)
+num_female_val = np.sum(y_val == 1)
+
+# 计算测试集中男性和女性图像的数量
+num_male_test = np.sum(y_test == 0)
+num_female_test = np.sum(y_test == 1)
+
+# 打印各数据集中男性和女性图像的数量
+print("训练集中男性图像数量:", num_male_train)
+print("训练集中女性图像数量:", num_female_train)
+print("验证集中男性图像数量:", num_male_val)
+print("验证集中女性图像数量:", num_female_val)
+print("测试集中男性图像数量:", num_male_test)
+print("测试集中女性图像数量:", num_female_test)
+训练模型
+import numpy as np
+from sklearn.model_selection import train_test_split
+import tensorflow as tf
+from tensorflow.keras.applications.mobilenet import MobileNet  # 使用较小的预训练模型
+from tensorflow.keras.layers import Dense, Flatten, Dropout
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam, SGD, RMSprop
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from sklearn.utils.class_weight import compute_sample_weight
+from sklearn.model_selection import GridSearchCV
+from scikeras.wrappers import KerasClassifier
+from tqdm.keras import TqdmCallback
+# 假设X和y已经准备好了
+# 使用train_test_split划分数据集
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# 计算样本权重
+sample_weights = compute_sample_weight(class_weight='balanced', y=y_train)
+
+# 准备数据增强（data augmentation）
+train_datagen = ImageDataGenerator(
+    rescale=1./255,
+    rotation_range=20,
+    width_shift_range=0.2,
+    height_shift_range=0.2,
+    shear_range=0.2,
+    zoom_range=0.2,
+    horizontal_flip=True,
+    fill_mode='nearest')
+
+test_datagen = ImageDataGenerator(rescale=1./255)
+
+# 使用.flow()方法生成训练集和测试集
+train_generator = train_datagen.flow(X_train, y_train, batch_size=32, sample_weight=sample_weights)
+test_generator = test_datagen.flow(X_test, y_test, batch_size=32)
+
+# 定义模型创建函数
+def create_model(optimizer=Adam, learning_rate=0.001):
+    base_model = MobileNet(weights='imagenet', include_top=False, input_shape=(64, 64, 3))  # 使用MobileNet
+
+    for layer in base_model.layers[:-4]:
+        layer.trainable = False
+
+    x = base_model.output
+    x = Flatten()(x)
+    x = Dense(512, activation='relu')(x)
+    x = Dropout(0.5)(x)
+
+    # 更改输出层为二分类问题
+    predictions = Dense(1, activation='sigmoid')(x)
+
+    model = Model(inputs=base_model.input, outputs=predictions)
+    model.compile(optimizer=optimizer(learning_rate=learning_rate), loss='binary_crossentropy', metrics=['accuracy'])
+    return model
+
+# 将模型包装为 Scikit-learn 兼容的分类器
+keras_classifier = KerasClassifier(build_fn=create_model, epochs=10, batch_size=32, verbose=0, learning_rate=None)  # 减少epoch数量
+
+param_grid = {
+    'optimizer': [Adam, SGD, RMSprop],
+    'learning_rate': [0.01, 0.001]  # 减小参数网格
+}
+
+grid = GridSearchCV(estimator=keras_classifier, param_grid=param_grid, cv=3, verbose=3)
+
+# 创建一个 TqdmCallback 实例
+tqdm_callback = TqdmCallback(verbose=1)
+
+# 添加回调函数到 fit() 方法中
+grid_result = grid.fit(X_train, y_train, callbacks=[tqdm_callback])
+
+# 输出最佳参数
+print("Best: %f using %s" % (grid_result.best_score_, grid_result.best_params_))
+
+# 使用最佳超参数训练模型
+best_model = grid_result.best_estimator_.model
+# 5.评估模型：
+在测试集上评估训练好的模型的性能。常用的评估指标包括准确率、召回率、F1分数等。如果评估结果满意，你可以继续下一步；如果不满意，可以调整模型结构或超参数，然后重新训练和评估。
+from sklearn.metrics import confusion_matrix, classification_report
+
+# 评估模型在测试集上的性能
+loss, accuracy = best_model.evaluate(X_test, y_test)
+
+print("Test accuracy: {:.2f}%".format(accuracy * 100))
+
+# 计算混淆矩阵和分类报告
+y_pred = best_model.predict(X_test)
+y_pred_classes = np.round(y_pred).reshape(-1)
+
+cm = confusion_matrix(y_test, y_pred_classes)
+cr = classification_report(y_test, y_pred_classes, target_names=["Male", "Female"], output_dict=True)
+
+print("\n")
+print("Summary:")
+print("The model correctly classified {:.2f}% of the test images.".format(accuracy * 100))
+print("The model correctly classified {:.2f}% of the male images.".format(cr["Male"]["recall"] * 100))
+print("The model correctly classified {:.2f}% of the female images.".format(cr["Female"]["recall"] * 100))
+
+print("\nDetailed Results:")
+print("Confusion Matrix:")
+print(cm)
+
+print("\nClassification Report:")
+print("Male:")
+print("  - Precision: {:.2f}%".format(cr["Male"]["precision"] * 100))
+print("  - Recall: {:.2f}%".format(cr["Male"]["recall"] * 100))
+print("  - F1 Score: {:.2f}%".format(cr["Male"]["f1-score"] * 100))
+print("Female:")
+print("  - Precision: {:.2f}%".format(cr["Female"]["precision"] * 100))
+print("  - Recall: {:.2f}%".format(cr["Female"]["recall"] * 100))
+print("  - F1 Score: {:.2f}%".format(cr["Female"]["f1-score"] * 100))
+
+
+#将数据写入文件
+import pandas as pd
+import os
+
+# 定义将结果写入 CSV 文件的函数
+def write_results_to_csv(filename, results):
+    if os.path.isfile(filename):
+        # 文件已存在，追加新行
+        with open(filename, 'a') as f:
+            results.to_csv(f, header=False, index=False)
+    else:
+        # 文件不存在，创建并写入标题行
+        results.to_csv(filename, header=True, index=False)
+
+# 从评估结果中创建 Pandas DataFrame
+results = pd.DataFrame({
+    'model_name': ['VGG16'],  # 添加模型名称
+    'pretraining_image_count': [X_train.shape[0]],  # 添加预训练时使用的图像数量
+    'training_epochs': [30],  # 添加模型训练轮数
+    'data_count': [len(X_test)],
+    'model_parameters': [best_model.count_params()],
+    'accuracy': [accuracy],
+    'male_precision': [cr['Male']['precision']],
+    'male_recall': [cr['Male']['recall']],
+    'male_f1_score': [cr['Male']['f1-score']],
+    'female_precision': [cr['Female']['precision']],
+    'female_recall': [cr['Female']['recall']],
+    'female_f1_score': [cr['Female']['f1-score']]
+})
+
+# 将评估结果写入 CSV 文件
+filename = 'evaluation_results.csv'
+write_results_to_csv(filename, results)

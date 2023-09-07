@@ -1,0 +1,82 @@
+使用TensorFlow和Keras搭建的基于VGG16预训练模型
+
+import numpy as np
+from sklearn.model_selection import train_test_split
+import tensorflow as tf
+from tensorflow.keras.applications.vgg16 import VGG16
+from tensorflow.keras.layers import Dense, Flatten, Dropout
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from sklearn.utils.class_weight import compute_sample_weight
+
+# 假设已经加载并预处理好图片数据，存储在X中，标签存储在y中
+# X = ...
+# y = ...
+
+# 使用你提供的split_data函数划分数据集
+X_train, X_val, X_test, y_train, y_val, y_test = split_data(X, y)
+
+# 计算样本权重
+sample_weights = compute_sample_weight(class_weight='balanced', y=y_train)
+
+# 准备数据增强（data augmentation）
+train_datagen = ImageDataGenerator(
+    rescale=1./255,
+    rotation_range=20,
+    width_shift_range=0.2,
+    height_shift_range=0.2,
+    shear_range=0.2,
+    zoom_range=0.2,
+    horizontal_flip=True,
+    fill_mode='nearest')
+
+validation_datagen = ImageDataGenerator(rescale=1./255)
+
+# 使用.flow()方法生成训练集和验证集
+train_generator = train_datagen.flow(X_train, y_train, batch_size=32, sample_weight=sample_weights)
+validation_generator = validation_datagen.flow(X_val, y_val, batch_size=32)
+
+# 创建和训练模型（与之前的代码相同）
+# 更改输入尺寸为(64, 64, 3)，与您的数据集尺寸匹配
+base_model = VGG16(weights='imagenet', include_top=False, input_shape=(64, 64, 3))
+
+for layer in base_model.layers[:-4]:
+    layer.trainable = False
+
+x = base_model.output
+x = Flatten()(x)
+x = Dense(512, activation='relu')(x)
+x = Dropout(0.5)(x)
+
+# 更改输出层为二分类问题
+predictions = Dense(1, activation='sigmoid')(x)
+
+model = Model(inputs=base_model.input, outputs=predictions)
+# 更改损失函数为binary_crossentropy
+model.compile(optimizer=Adam(learning_rate=0.0001), loss='binary_crossentropy', metrics=['accuracy'])
+
+history = model.fit(
+    train_generator,
+    steps_per_epoch=len(train_generator),
+    epochs=30,
+    validation_data=validation_generator,
+    validation_steps=len(validation_generator))
+
+评估模型代码
+
+
+# 评估模型在测试集上的性能
+loss, accuracy = model.evaluate(X_test, y_test)
+
+print("Test accuracy: {:.2f}%".format(accuracy * 100))
+
+# 计算混淆矩阵和分类报告
+y_pred = model.predict(X_test / 255.0)
+y_pred_classes = np.round(y_pred).reshape(-1)
+
+print("Confusion Matrix:")
+print(confusion_matrix(y_test, y_pred_classes))
+
+print("\nClassification Report:")
+print(classification_report(y_test, y_pred_classes, target_names=["Male", "Female"]))
